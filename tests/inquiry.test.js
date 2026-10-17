@@ -24,8 +24,8 @@ test('Web3Forms request has the access key, reply address and inquiry fields', a
     assert.equal(payload.subject, 'CROSSMER — Product Inquiry');
     assert.equal(payload.inquiry_type, 'Product Inquiry');
     assert.equal(payload.product, 'Silikomanqan');
-    assert.equal(payload.language, 'az');
-    assert.equal(payload.consent, true);
+    assert.equal('language' in payload, false);
+    assert.equal('consent' in payload, false);
     assert.equal(payload.botcheck, false);
     assert.equal('website' in payload, false);
     return { ok: true, json: async () => ({ success: true }) };

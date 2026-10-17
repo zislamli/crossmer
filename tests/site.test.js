@@ -257,7 +257,8 @@ test('Web3Forms failure preserves entries and a successful retry clears them', a
   await page.submit();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://api.web3forms.com/submit');
-  assert.equal(calls[0].payload.language, 'az');
+  assert.equal('language' in calls[0].payload, false);
+  assert.equal('consent' in calls[0].payload, false);
   assert.equal(calls[0].payload.product, 'Silikomanqan');
   assert.ok(page.main.includes(copy.az.failure));
   assert.match(page.main, /form-status is-error/);
