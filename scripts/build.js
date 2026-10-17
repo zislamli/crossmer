@@ -4,6 +4,37 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 
 const root = path.resolve(__dirname, '..');
+const outputRoot = path.join(root, 'dist');
+
+function resetOutput() {
+  if (fs.existsSync(outputRoot)) {
+    const entry = fs.lstatSync(outputRoot);
+    const expected = path.join(fs.realpathSync(root), 'dist');
+    if (!entry.isDirectory() || entry.isSymbolicLink() || fs.realpathSync(outputRoot) !== expected) {
+      throw new Error('Refusing to clean an output path outside the project dist directory.');
+    }
+    fs.rmSync(outputRoot, { recursive: true });
+  }
+  fs.mkdirSync(outputRoot);
+}
+
+function copyPublicAssets(directory = path.join(root, 'assets')) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const source = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error('Public assets must not contain symbolic links: ' + source);
+    if (entry.isDirectory()) {
+      copyPublicAssets(source);
+    } else if (entry.isFile()) {
+      const relative = path.relative(root, source);
+      const isMedia = /\.(webp|jpe?g|png|svg|woff2?|ico)$/i.test(entry.name);
+      const isLicense = relative === path.join('assets', 'fonts', 'Inter-OFL.txt');
+      if ((!isMedia && !isLicense) || entry.name === 'favicon-preview.png') continue;
+      const output = path.join(outputRoot, relative);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.copyFileSync(source, output);
+    }
+  }
+}
 
 function loadSite() {
   const source = fs.readFileSync(path.join(root, 'src/site.js'), 'utf8');
@@ -27,10 +58,14 @@ function buildSite({ siteUrl = process.env.SITE_URL || 'https://crossmer.com' } 
   const template = fs.readFileSync(path.join(root, 'src/template.html'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'src/site.css'), 'utf8');
   const revision = crypto.createHash('sha256').update(source).update(css).digest('hex').slice(0, 12);
+  resetOutput();
   const write = (filename, value) => {
-    const output = path.join(root, filename);
-    fs.mkdirSync(path.dirname(output), { recursive: true });
-    fs.writeFileSync(output, value);
+    // Keep the existing generated files available, and publish only the dist copy.
+    for (const base of [root, outputRoot]) {
+      const output = path.join(base, filename);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, value);
+    }
   };
 
   function page(language, route) {
@@ -67,12 +102,15 @@ function buildSite({ siteUrl = process.env.SITE_URL || 'https://crossmer.com' } 
   write('assets/site.css', css);
   write('robots.txt', `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\n`);
   write('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>${renderer.esc(url)}</loc></url>`).join('\n')}\n</urlset>\n`);
-  return { pages: urls.length, siteUrl };
+  copyPublicAssets();
+  fs.copyFileSync(path.join(root, 'favicon.ico'), path.join(outputRoot, 'favicon.ico'));
+  const files = fs.readdirSync(outputRoot, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).length;
+  return { pages: urls.length, siteUrl, outputRoot, files };
 }
 
 if (require.main === module) {
   const result = buildSite();
-  console.log(`Built ${result.pages} localized pages for ${result.siteUrl}, plus the root and 404 pages.`);
+  console.log(`Built ${result.pages} localized pages for ${result.siteUrl}. Ready to publish: dist/ (${result.files} files).`);
 }
 
-module.exports = { buildSite, loadSite, root };
+module.exports = { buildSite, loadSite, root, outputRoot };

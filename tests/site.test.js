@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { once } = require('node:events');
-const { buildSite, loadSite, root } = require('../scripts/build');
+const { buildSite, loadSite, root, outputRoot } = require('../scripts/build');
 const { createServer } = require('../scripts/serve');
 
 function browser(initialPath = '/en/') {
@@ -57,7 +57,7 @@ function browser(initialPath = '/en/') {
     location, history, document,
     window: { addEventListener: on('window'), scrollTo() {} }
   });
-  vm.runInContext(fs.readFileSync(path.join(root, 'assets/site.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(outputRoot, 'assets/site.js'), 'utf8'), context);
   return {
     get url() { return url; },
     get writes() { return mainWrites; },
@@ -93,7 +93,7 @@ test('all 32 URLs serve localized content and complete SEO without JavaScript', 
   const { modules } = loadSite();
   const renderer = modules['trade-render'];
   const { languages } = modules['trade-content'];
-  const sitemap = fs.readFileSync(path.join(root, 'sitemap.xml'), 'utf8');
+  const sitemap = fs.readFileSync(path.join(outputRoot, 'sitemap.xml'), 'utf8');
   assert.equal((sitemap.match(/<loc>/g) || []).length, 32);
   for (const language of languages) for (const route of renderer.routes) {
     const pathname = renderer.path(language, route);
@@ -121,7 +121,7 @@ test('all 32 URLs serve localized content and complete SEO without JavaScript', 
         const value = entry.trim().split(/\s+/)[0];
         if (!value.startsWith('/assets/')) continue;
         const asset = new URL(value, origin);
-        assert.ok(fs.statSync(path.join(root, asset.pathname)).isFile(), asset.pathname);
+        assert.ok(fs.statSync(path.join(outputRoot, asset.pathname)).isFile(), asset.pathname);
       }
     }
   }
@@ -221,4 +221,21 @@ test('explicit index.html URLs retain the page and its clean canonical', () => {
   const about = browser('/az/about/index.html');
   assert.match(about.head, /rel="canonical" href="https:\/\/crossmer.com\/az\/about\/"/);
   assert.ok(!about.head.includes('noindex'));
+});
+
+test('deployment output is rebuilt cleanly and excludes repository files', () => {
+  fs.writeFileSync(path.join(outputRoot, 'stale.html'), 'obsolete build output');
+  const result = buildSite();
+  assert.equal(fs.existsSync(path.join(outputRoot, 'stale.html')), false);
+  for (const excluded of ['.git', 'src', 'scripts', 'tests', 'node_modules', 'wrangler.jsonc', 'package.json', 'README.md', 'assets/favicon-preview.png']) {
+    assert.equal(fs.existsSync(path.join(outputRoot, excluded)), false, excluded);
+  }
+  for (const required of ['index.html', '404.html', 'favicon.ico', 'robots.txt', 'sitemap.xml', 'assets/site.css', 'assets/site.js', 'assets/fonts/inter-global.woff', 'assets/fonts/Inter-OFL.txt']) {
+    assert.ok(fs.statSync(path.join(outputRoot, required)).isFile(), required);
+  }
+  assert.equal(result.pages, 32);
+  assert.ok(result.files < 100, 'Only public site files should be published.');
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'wrangler.jsonc'), 'utf8'));
+  assert.equal(path.resolve(root, config.assets.directory), outputRoot);
+  assert.equal(config.assets.not_found_handling, '404-page');
 });
