@@ -7,7 +7,7 @@ const { once } = require('node:events');
 const { buildSite, loadSite, root, outputRoot } = require('../scripts/build');
 const { createServer } = require('../scripts/serve');
 
-function browser(initialPath = '/en/') {
+function browser(initialPath = '/en/', { request = async () => { throw new Error('Unexpected external request in browser test.'); } } = {}) {
   let url = new URL(initialPath, 'https://crossmer.com');
   let mainWrites = 0;
   let headHtml = '';
@@ -53,7 +53,7 @@ function browser(initialPath = '/en/') {
     addEventListener: on('document')
   };
   const context = vm.createContext({
-    URL, URLSearchParams, Intl, fetch, AbortController, setTimeout, clearTimeout,
+    URL, URLSearchParams, Intl, fetch: request, AbortController, setTimeout, clearTimeout,
     location, history, document,
     window: { addEventListener: on('window'), scrollTo() {} }
   });
@@ -238,4 +238,55 @@ test('deployment output is rebuilt cleanly and excludes repository files', () =>
   const config = JSON.parse(fs.readFileSync(path.join(root, 'wrangler.jsonc'), 'utf8'));
   assert.equal(path.resolve(root, config.assets.directory), outputRoot);
   assert.equal(config.assets.not_found_handling, '404-page');
+});
+
+async function fillInquiry(page) {
+  for (const [name, value] of Object.entries({ name: 'Test User', company: 'Test Company', email: 'test@example.com', message: 'Please provide information about the requested material.', consent: true })) {
+    await page.input(name, value);
+  }
+}
+
+test('Web3Forms failure preserves entries and a successful retry clears them', async () => {
+  const { copy } = loadSite().modules['trade-content'];
+  const calls = [];
+  const page = browser('/az/contact/?type=product&product=silicomanganese', { request: async (url, options) => {
+    calls.push({ url, payload: JSON.parse(options.body) });
+    return { ok: calls.length > 1, json: async () => ({ success: calls.length > 1 }) };
+  } });
+  await fillInquiry(page);
+  await page.submit();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://api.web3forms.com/submit');
+  assert.equal(calls[0].payload.language, 'az');
+  assert.equal(calls[0].payload.product, 'Silikomanqan');
+  assert.ok(page.main.includes(copy.az.failure));
+  assert.match(page.main, /form-status is-error/);
+  assert.match(page.main, /value="Test User"/);
+  assert.match(page.main, /value="test@example.com"/);
+  await page.submit();
+  assert.equal(calls.length, 2);
+  assert.ok(page.main.includes(copy.az.sent));
+  assert.match(page.main, /id="name"[^>]*value=""/);
+  assert.match(page.main, /id="email"[^>]*value=""/);
+});
+
+test('pending submission blocks duplicate clicks and stays disabled during a language change', async () => {
+  let finish, calls = 0;
+  const page = browser('/az/contact/?type=product', { request: () => {
+    calls++;
+    return new Promise(resolve => { finish = resolve; });
+  } });
+  await fillInquiry(page);
+  const pending = page.submit();
+  assert.match(page.main, /aria-busy="true"/);
+  assert.match(page.main, /<fieldset class="form-controls" disabled>/);
+  await page.submit();
+  assert.equal(calls, 1);
+  await page.click('/en/contact/?type=product');
+  assert.match(page.main, /<fieldset class="form-controls" disabled>/);
+  assert.match(page.main, /Sending…/);
+  finish({ ok: true, json: async () => ({ success: true }) });
+  await pending;
+  assert.match(page.main, /aria-busy="false"/);
+  assert.ok(page.main.includes(loadSite().modules['trade-content'].copy.en.sent));
 });

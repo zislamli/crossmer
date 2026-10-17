@@ -52,4 +52,10 @@ For Cloudflare Pages instead of Workers, use build command `npm run build` and o
 
 Each localized URL contains its content and metadata in the initial HTML. Canonical and language alternates omit inquiry query parameters. Internal navigation uses browser history, with back/forward support. Existing links such as `/#/az/about/` are converted to `/az/about/` in the browser. The root serves the English home page with `/en/` as its canonical URL.
 
-The inquiry form still downloads a text file; online delivery is not configured. Without JavaScript, the contact page offers the company email address instead.
+## Contact form
+
+The contact form submits JSON directly to Web3Forms at `https://api.web3forms.com/submit`. Its public access key is configured in `inquiryConfig` in `src/site.js`; Web3Forms delivers to the recipient associated with that key. No backend or Cloudflare secret is required for this browser-side form identifier. See the [Web3Forms API reference](https://docs.web3forms.com/getting-started/api-reference).
+
+Submissions include the inquiry fields, reply-to email, language and consent confirmation. Client validation, the hidden spam field, a 20-second request timeout and a pending state prevent common errors and duplicate clicks. Only an HTTP success response with `success: true` clears the form. Failures keep the entries for retry. Status messages and the privacy notice are available in all four languages. Without JavaScript, the contact page offers the company email address instead.
+
+Automated delivery tests mock Web3Forms responses and do not send email. A successful automated test does not verify activation of the access key or receipt in the associated mailbox.
