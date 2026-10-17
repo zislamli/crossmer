@@ -1,0 +1,15 @@
+{
+  "name": "crossmer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CROSSMER multilingual static website",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js && node scripts/serve.js",
+    "start": "node scripts/serve.js",
+    "test": "node scripts/build.js && node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
